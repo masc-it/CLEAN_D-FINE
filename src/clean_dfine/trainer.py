@@ -26,7 +26,56 @@ import numpy as np
 from scipy.optimize import linear_sum_assignment
 from typing import Dict
 
+import math
+from torch.optim.lr_scheduler import _LRScheduler
 
+class CosineAnnealingWarmupScheduler(_LRScheduler):
+    """
+    Cosine annealing scheduler with warmup.
+
+    Args:
+        optimizer (Optimizer): Wrapped optimizer.
+        initial_lr (float): Target learning rate after warmup.
+        final_lr (float): Final learning rate after cosine annealing.
+        warmup_steps (int): Number of steps for the warmup phase.
+        total_steps (int): Total number of training steps.
+        warmup_start_lr (float, optional): Starting learning rate for warmup. Default: 0.
+        last_epoch (int, optional): The index of the last epoch. Default: -1.
+    """
+    def __init__(self, optimizer, initial_lr, final_lr, warmup_steps, total_steps, 
+                 warmup_start_lr=0.0, last_epoch=-1):
+        self.initial_lr = initial_lr
+        self.final_lr = final_lr
+        self.warmup_steps = warmup_steps
+        self.total_steps = total_steps
+        self.warmup_start_lr = warmup_start_lr
+
+        if total_steps < warmup_steps:
+            raise ValueError("total_steps must be larger than warmup_steps.")
+
+        super(CosineAnnealingWarmupScheduler, self).__init__(optimizer, last_epoch)
+
+    def get_lr(self):
+        current_step = self.last_epoch + 1  # since last_epoch is initialized to -1
+        if current_step <= self.warmup_steps and self.warmup_steps != 0:
+            # Linear warmup
+            lr = self.warmup_start_lr + (self.initial_lr - self.warmup_start_lr) * (current_step / self.warmup_steps)
+        elif current_step <= self.total_steps:
+            # Cosine annealing
+            cosine_steps = current_step - self.warmup_steps
+            cosine_total = self.total_steps - self.warmup_steps
+            cosine_decay = 0.5 * (1 + math.cos(math.pi * cosine_steps / cosine_total))
+            lr = self.final_lr + (self.initial_lr - self.final_lr) * cosine_decay
+        else:
+            # After total_steps, keep the final_lr
+            lr = self.final_lr
+
+        return [lr for _ in self.optimizer.param_groups]
+
+    def _get_closed_form_lr(self):
+        """Optional: Implement if needed for certain schedulers."""
+        return self.get_lr()
+    
 def train(
     cfg: ExperimentConfig,
     model,
@@ -43,6 +92,14 @@ def train(
     )
     # postprocessor = DFINEPostProcessor(num_classes=cfg.num_classes).to(cfg.device)
 
+    scheduler = CosineAnnealingWarmupScheduler(
+        optimizer,
+        initial_lr=cfg.lr0,
+        final_lr=5e-5,
+        warmup_steps=len(dataloader_train) * 0.5,
+        total_steps=len(dataloader_train)*cfg.num_epochs,
+        warmup_start_lr=5e-5  # Starting from 0
+    )
     criterion = CriterionDetection(
         losses=["vfl", "boxes", "focal"],
         weight_dict={
@@ -63,6 +120,7 @@ def train(
             model,
             criterion,
             optimizer,
+            scheduler,
             scaler,
             dataloader_train,
             cfg.device,
@@ -74,6 +132,7 @@ def train_one_epoch(
     model: torch.nn.Module,
     criterion: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
+    scheduler,
     scaler: GradScaler,
     data_loader: DataLoader,
     device: str,
@@ -99,8 +158,8 @@ def train_one_epoch(
         optimizer.zero_grad()
         with torch.autocast(
             device_type=device,
-            dtype=torch.bfloat16 if device == "cuda" else None,
-            enabled=device != "mps",
+            dtype= torch.bfloat16 if device == "cuda" else None,
+            enabled= device != "mps",
         ):
             outputs = model(samples, targets=targets)
             loss = criterion(outputs, targets, **metas)
@@ -118,12 +177,12 @@ def train_one_epoch(
         norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
 
         scaler.step(optimizer)
+        scheduler.step()
         scaler.update()
-
         if i % 2 == 0:
             # show separate losses
             pbar.set_description(
-                f"epoch={epoch}&loss={loss.item():.4f}&norm={norm.item():.2}"
+                f"epoch={epoch}&loss={loss.item():.4f}&norm={norm.item():.2}&lr={scheduler.get_last_lr()[-1]:.5f}"
             )
 
 

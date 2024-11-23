@@ -342,8 +342,10 @@ requires-dist = [
     { name = "scipy", specifier = ">=1.13.1" },
     { name = "supervision", specifier = ">=0.25.0" },
     { name = "tensorboard", specifier = ">=2.18.0" },
-    { name = "torch", specifier = ">=2.5.1" },
-    { name = "torchvision", specifier = ">=0.20.1" },
+    { name = "torch", marker = "platform_system != 'Darwin'", specifier = ">=2.5.1", index = "pytorch-cu121" },
+    { name = "torch", marker = "platform_system == 'Darwin'", specifier = ">=2.5.1" },
+    { name = "torchvision", marker = "platform_system != 'Darwin'", specifier = ">=0.20.1", index = "pytorch-cu121" },
+    { name = "torchvision", marker = "platform_system == 'Darwin'", specifier = ">=0.20.1" },
 ]
 
 [package.metadata.requires-dev]

@@ -24,12 +24,12 @@ def main(
     cfg = ExperimentConfig(
         exp_name="dfine-test",
         model="dfine-det-s",
-        batch_size=8,
-        device="cpu",
+        batch_size=16,
+        device="cuda",
         out_dir="runs/exp",
         num_classes=5,
         lr0=8e-4,
-        num_epochs=100,
+        num_epochs=200,
     )
 
     backbone = HGNetv2(
@@ -57,7 +57,7 @@ def main(
         feat_strides=[16, 32],
         hidden_dim=128,
         dim_feedforward=512,
-        num_queries=200,
+        num_queries=300,
         num_levels=2,
         num_layers=3,
         eval_idx=-1,
@@ -73,11 +73,11 @@ def main(
 
     print(sum(p.numel() for p in model.parameters()))
 
-    img_size = 480
+    img_size = 640
     dataset_train = HFImageDataset.from_path(Path("./data/dataset-test"), img_size)
     dataloader_train = DataLoader(
         dataset_train,
-        batch_size=4,
+        batch_size=8,
         shuffle=True,
         num_workers=2,
         persistent_workers=True,
