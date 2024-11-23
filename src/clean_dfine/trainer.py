@@ -13,8 +13,10 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from torch.amp.grad_scaler import GradScaler
+from clean_dfine.arch.postprocessor import DFINEPostProcessor
 from clean_dfine.config import ExperimentConfig
 from torch.optim.adamw import AdamW
+from torch.optim.adam import Adam
 import torch.nn.functional as F
 import torchvision
 
@@ -31,17 +33,18 @@ def train(
     dataloader_train: DataLoader,
     dataloader_val: DataLoader,
 ):
-    scaler = GradScaler(cfg.device)
-    optimizer = AdamW(model.parameters(), lr=cfg.lr0, fused=torch.cuda.is_available())
-    # TODO add scheduler w/ warmup
+    scaler = GradScaler(cfg.device, enabled=cfg.device != "mps")
+    optimizer = Adam(model.parameters(), lr=cfg.lr0, fused=torch.cuda.is_available())
+
     matcher = HungarianMatcher(
         weight_dict={"cost_class": 2, "cost_bbox": 5, "cost_giou": 2},
         alpha=0.25,
         gamma=2.0,
     )
+    # postprocessor = DFINEPostProcessor(num_classes=cfg.num_classes).to(cfg.device)
 
     criterion = CriterionDetection(
-        losses=["vfl", "boxes", "local"],
+        losses=["vfl", "boxes", "focal"],
         weight_dict={
             "loss_vfl": 1,
             "loss_bbox": 5,
@@ -55,8 +58,6 @@ def train(
         matcher=matcher,
     )
 
-    torch_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-
     for epoch in range(cfg.num_epochs):
         train_one_epoch(
             model,
@@ -66,7 +67,6 @@ def train(
             dataloader_train,
             cfg.device,
             epoch,
-            torch_dtype,
         )
 
 
@@ -76,10 +76,9 @@ def train_one_epoch(
     optimizer: torch.optim.Optimizer,
     scaler: GradScaler,
     data_loader: DataLoader,
-    device: torch.device,
+    device: str,
     epoch: int,
-    torch_dtype: torch.dtype,
-    max_norm: float = 8,
+    max_norm: float = 3,
 ):
     model.train()
     criterion.train()
@@ -87,8 +86,10 @@ def train_one_epoch(
     pbar = tqdm(enumerate(data_loader))
 
     for i, (samples, targets) in pbar:
-        samples = samples.to(device)
-        targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+        samples = samples.to(device, non_blocking=True)
+        targets = [
+            {k: v.to(device, non_blocking=True) for k, v in t.items()} for t in targets
+        ]
 
         global_step = epoch * len(data_loader) + i
         metas = dict(
@@ -98,25 +99,32 @@ def train_one_epoch(
         optimizer.zero_grad()
         with torch.autocast(
             device_type=device,
-            cache_enabled=True,
-            dtype=torch_dtype,
-            enabled=device != "mps",  # TODO check torch 2.5
+            dtype=torch.bfloat16 if device == "cuda" else None,
+            enabled=device != "mps",
         ):
             outputs = model(samples, targets=targets)
-            loss_dict = criterion(outputs, targets, **metas)
+            loss = criterion(outputs, targets, **metas)
+            # loss = loss_vfl + loss_boxes + loss_focal
+            loss = sum(loss.values())
+            """ loss = (
+                torch.tensor(list(loss.values()), requires_grad=True)
+                .sum()
+                .to(samples.device)
+            ) """
 
-        loss = sum(loss_dict.values())
         scaler.scale(loss).backward()
 
         scaler.unscale_(optimizer)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+        norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
 
         scaler.step(optimizer)
         scaler.update()
 
         if i % 2 == 0:
             # show separate losses
-            pbar.set_description(f"epoch={epoch}&loss={loss.item():.4f}")
+            pbar.set_description(
+                f"epoch={epoch}&loss={loss.item():.4f}&norm={norm.item():.2}"
+            )
 
 
 class CriterionDetection(torch.nn.Module):
@@ -173,7 +181,8 @@ class CriterionDetection(torch.nn.Module):
                 if k in self.weight_dict
             }
             losses.update(l_dict)
-        return losses
+        # print(losses)
+        return losses  # losses["loss_vfl"], losses["loss_bbox"], losses["loss_giou"]
 
     def _get_src_permutation_idx(self, indices):
         # permute predictions following indices
@@ -197,7 +206,7 @@ class CriterionDetection(torch.nn.Module):
         num_pos = torch.as_tensor(
             [num_pos], dtype=torch.float32, device=indices[0][0].device
         )
-        num_pos = torch.clamp(num_pos).item()
+        num_pos = torch.clamp(num_pos, min=1).item()
         return num_pos
 
     def loss_labels_focal(self, outputs, targets, indices, num_boxes):
