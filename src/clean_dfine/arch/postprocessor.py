@@ -19,12 +19,6 @@ def mod(a, b):
 
 
 class DFINEPostProcessor(nn.Module):
-    __share__ = [
-        "num_classes",
-        "use_focal_loss",
-        "num_top_queries",
-        "remap_mscoco_category",
-    ]
 
     def __init__(
         self,
@@ -80,7 +74,6 @@ class DFINEPostProcessor(nn.Module):
         for lab, box, sco in zip(labels, boxes, scores):
             result = dict(labels=lab, boxes=box, scores=sco)
             results.append(result)
-
         return results
 
     def deploy(

@@ -1,34 +1,55 @@
-"""
-Copied from RT-DETR (https://github.com/lyuwenyu/RT-DETR)
-Copyright(c) 2023 lyuwenyu. All Rights Reserved.
-"""
-
+from PIL.Image import Image
 import torch
+from clean_dfine.arch.dfine import DFINE
+from clean_dfine.arch.postprocessor import DFINEPostProcessor
+from clean_dfine.evaluation.object_detection import BBox, DetModel
 
 
-__all__ = [
-    "YOLO",
-]
+class DFineModel(DetModel):
+    def __init__(
+        self, model: DFINE, posprocessor: DFINEPostProcessor, img_size: int
+    ) -> None:
+        self.model = model
+        self.model.decoder.training = False  # :vomit fix her asap
+        self.postprocessor = posprocessor
+        self.img_size = img_size
 
+    def predict(self, img: torch.Tensor) -> list[BBox]:
+        return []
 
-class YOLO(torch.nn.Module):
-    def __init__(self, backbone: torch.nn.Module, neck, head):
-        super().__init__()
-        self.backbone = backbone
-        self.neck = neck
-        self.head = head
+    @torch.inference_mode()
+    def predict_batch(self, imgs: torch.Tensor) -> list[list[BBox]]:
+        outputs = self.model(imgs)
+        outputs = self.postprocessor(
+            outputs,
+            torch.tensor(
+                [[self.img_size, self.img_size]] * imgs.size(0), device=imgs.device
+            ),
+        )
 
-    def forward(self, x, **kwargs):
-        x = self.backbone(x)
-        x = self.neck(x)
-        x = self.head(x)
-        return x
+        return self._raw_preds_to_bboxes(outputs)
 
-    def deploy(
-        self,
-    ):
-        self.eval()
-        for m in self.modules():
-            if m is not self and hasattr(m, "deploy"):
-                m.deploy()
-        return self
+    def _raw_preds_to_bboxes(self, preds: list[dict]) -> list[list[BBox]]:
+        processes_preds = []
+        for img_preds in preds:
+            boxes = img_preds["boxes"].tolist()
+            labels = img_preds["labels"].tolist()
+            scores = img_preds["scores"].tolist()
+
+            img_bboxes = []
+            for box, label, score in zip(boxes, labels, scores):
+                bbox = BBox(
+                    xmin=int(box[0]),
+                    ymin=int(box[1]),
+                    xmax=int(box[2]),
+                    ymax=int(box[-1]),
+                    width=int(box[2] - box[0]),
+                    height=int(box[-1] - box[1]),
+                    label="",
+                    label_idx=label,
+                    score=score,
+                )
+                img_bboxes.append(bbox)
+        processes_preds.append(img_bboxes)
+
+        return processes_preds

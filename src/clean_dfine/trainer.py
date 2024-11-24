@@ -7,12 +7,12 @@ Copyright (c) 2023 lyuwenyu. All Rights Reserved.
 """
 
 import torch.amp
-# from torch.utils.tensorboard import SummaryWriter
 
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from torch.amp.grad_scaler import GradScaler
+from clean_dfine.arch.dfine import DFINE
 from clean_dfine.arch.postprocessor import DFINEPostProcessor
 from clean_dfine.config import ExperimentConfig
 from torch.optim.adamw import AdamW
@@ -20,6 +20,7 @@ from torch.optim.adam import Adam
 import torch.nn.functional as F
 import torchvision
 
+from clean_dfine.model import DFineModel
 from clean_dfine.utils import box_ops
 import numpy as np
 
@@ -78,7 +79,7 @@ class CosineAnnealingWarmupScheduler(_LRScheduler):
     
 def train(
     cfg: ExperimentConfig,
-    model,
+    model: DFINE,
     dataloader_train: DataLoader,
     dataloader_val: DataLoader,
 ):
@@ -90,12 +91,18 @@ def train(
         alpha=0.25,
         gamma=2.0,
     )
-    # postprocessor = DFINEPostProcessor(num_classes=cfg.num_classes).to(cfg.device)
+    
+
+    """ postprocessor = DFINEPostProcessor(num_classes=cfg.num_classes).to(cfg.device)
+    imgs, _ = next(iter(dataloader_train))
+    m = DFineModel(model, postprocessor, cfg.img_size)
+
+    print(m.predict_batch(imgs.to(cfg.device))[0]) """
 
     scheduler = CosineAnnealingWarmupScheduler(
         optimizer,
         initial_lr=cfg.lr0,
-        final_lr=5e-5,
+        final_lr=1e-4,
         warmup_steps=len(dataloader_train) * 0.5,
         total_steps=len(dataloader_train)*cfg.num_epochs,
         warmup_start_lr=5e-5  # Starting from 0
@@ -142,10 +149,10 @@ def train_one_epoch(
     model.train()
     criterion.train()
 
-    pbar = tqdm(enumerate(data_loader))
+    pbar = tqdm(enumerate(data_loader), total=len(data_loader), unit="batch")
 
     for i, (samples, targets) in pbar:
-        samples = samples.to(device, non_blocking=True)
+        samples = samples.half().to(device, non_blocking=True)
         targets = [
             {k: v.to(device, non_blocking=True) for k, v in t.items()} for t in targets
         ]

@@ -4,6 +4,8 @@ Copyright (c) 2024 The D-FINE Authors. All Rights Reserved.
 
 import torch.nn as nn
 
+from clean_dfine.arch.dfine_decoder import DFINETransformer
+
 
 __all__ = [
     "DFINE",
@@ -15,7 +17,7 @@ class DFINE(nn.Module):
         self,
         backbone: nn.Module,
         encoder: nn.Module,
-        decoder: nn.Module,
+        decoder: DFINETransformer,
     ):
         super().__init__()
         self.backbone = backbone

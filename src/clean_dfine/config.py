@@ -13,6 +13,7 @@ class ExperimentConfig(BaseModel):
     num_epochs: int
     lr0: float
     num_classes: int
+    img_size: int
 
     def _setup_dirs(self):
         Path(self.out_dir).mkdir(exist_ok=True, parents=True)

@@ -12,7 +12,7 @@ import torchvision
 from torchvision.tv_tensors import BoundingBoxes, BoundingBoxFormat, Mask
 from torchvision.transforms import Compose
 from torchvision import transforms
-from datasets import Dataset, load_from_disk
+from datasets import Dataset, load_from_disk, concatenate_datasets
 from PIL import Image
 
 _boxes_keys = ["format", "canvas_size"]
@@ -42,9 +42,15 @@ class DetDataset(data.Dataset):
 
 class HFImageDataset(DetDataset):
     def __init__(
-        self, ds: Dataset, img_col: str, target_col: str, transforms, img_size: int
+        self,
+        ds_data: Dataset,
+        ds_images: Dataset,
+        img_col: str,
+        target_col: str,
+        transforms,
+        img_size: int,
     ):
-        self.ds = ds
+        self.ds = concatenate_datasets([ds_data.select_columns([target_col]), ds_images.select_columns([img_col])], axis=1)
         self.img_col = img_col
         self.target_col = target_col
         self.transforms = transforms
@@ -74,13 +80,16 @@ class HFImageDataset(DetDataset):
         return img, output
 
     @staticmethod
-    def from_path(ds_path: Path, img_size: int):
-        ds = load_from_disk(ds_path.as_posix())
-        assert isinstance(ds, Dataset)
+    def from_path(ds_path: Path, split: str, img_size: int):
+        
+        ds_data = load_from_disk((ds_path / "data" / split).as_posix())
+        ds_images = load_from_disk((ds_path / "data_images" / split).as_posix())
+        assert isinstance(ds_data, Dataset) and isinstance(ds_images, Dataset)
         return HFImageDataset(
-            ds,
+            ds_data,
+            ds_images,
             "image",
-            "target",
+            "gibs",
             Compose([transforms.Resize((img_size, img_size)), transforms.ToTensor()]),
             img_size,
         )
