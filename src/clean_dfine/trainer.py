@@ -20,6 +20,7 @@ from torch.optim.adam import Adam
 import torch.nn.functional as F
 import torchvision
 
+from clean_dfine.evaluation.evaluator import start_eval
 from clean_dfine.model import DFineModel
 from clean_dfine.utils import box_ops
 import numpy as np
@@ -29,6 +30,7 @@ from typing import Dict
 
 import math
 from torch.optim.lr_scheduler import _LRScheduler
+
 
 class CosineAnnealingWarmupScheduler(_LRScheduler):
     """
@@ -43,8 +45,17 @@ class CosineAnnealingWarmupScheduler(_LRScheduler):
         warmup_start_lr (float, optional): Starting learning rate for warmup. Default: 0.
         last_epoch (int, optional): The index of the last epoch. Default: -1.
     """
-    def __init__(self, optimizer, initial_lr, final_lr, warmup_steps, total_steps, 
-                 warmup_start_lr=0.0, last_epoch=-1):
+
+    def __init__(
+        self,
+        optimizer,
+        initial_lr,
+        final_lr,
+        warmup_steps,
+        total_steps,
+        warmup_start_lr=0.0,
+        last_epoch=-1,
+    ):
         self.initial_lr = initial_lr
         self.final_lr = final_lr
         self.warmup_steps = warmup_steps
@@ -60,7 +71,9 @@ class CosineAnnealingWarmupScheduler(_LRScheduler):
         current_step = self.last_epoch + 1  # since last_epoch is initialized to -1
         if current_step <= self.warmup_steps and self.warmup_steps != 0:
             # Linear warmup
-            lr = self.warmup_start_lr + (self.initial_lr - self.warmup_start_lr) * (current_step / self.warmup_steps)
+            lr = self.warmup_start_lr + (self.initial_lr - self.warmup_start_lr) * (
+                current_step / self.warmup_steps
+            )
         elif current_step <= self.total_steps:
             # Cosine annealing
             cosine_steps = current_step - self.warmup_steps
@@ -76,7 +89,8 @@ class CosineAnnealingWarmupScheduler(_LRScheduler):
     def _get_closed_form_lr(self):
         """Optional: Implement if needed for certain schedulers."""
         return self.get_lr()
-    
+
+
 def train(
     cfg: ExperimentConfig,
     model: DFINE,
@@ -91,21 +105,22 @@ def train(
         alpha=0.25,
         gamma=2.0,
     )
-    
 
-    """ postprocessor = DFINEPostProcessor(num_classes=cfg.num_classes).to(cfg.device)
-    imgs, _ = next(iter(dataloader_train))
+    postprocessor = DFINEPostProcessor(num_classes=cfg.num_classes).to(cfg.device)
+    # imgs, _ = next(iter(dataloader_train))
     m = DFineModel(model, postprocessor, cfg.img_size)
 
-    print(m.predict_batch(imgs.to(cfg.device))[0]) """
+    # print(m.predict_batch(imgs.to(cfg.device))[0])
 
+    print(start_eval(m, dataloader_val))
+    return
     scheduler = CosineAnnealingWarmupScheduler(
         optimizer,
         initial_lr=cfg.lr0,
         final_lr=1e-4,
         warmup_steps=len(dataloader_train) * 0.5,
-        total_steps=len(dataloader_train)*cfg.num_epochs,
-        warmup_start_lr=5e-5  # Starting from 0
+        total_steps=len(dataloader_train) * cfg.num_epochs,
+        warmup_start_lr=5e-5,  # Starting from 0
     )
     criterion = CriterionDetection(
         losses=["vfl", "boxes", "focal"],
@@ -165,8 +180,8 @@ def train_one_epoch(
         optimizer.zero_grad()
         with torch.autocast(
             device_type=device,
-            dtype= torch.bfloat16 if device == "cuda" else None,
-            enabled= device != "mps",
+            dtype=torch.bfloat16 if device == "cuda" else None,
+            enabled=device != "mps",
         ):
             outputs = model(samples, targets=targets)
             loss = criterion(outputs, targets, **metas)

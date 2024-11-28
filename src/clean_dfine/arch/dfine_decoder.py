@@ -15,7 +15,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.init as init
-from typing import List
+from typing import List, Union
 
 from clean_dfine.arch.denoising import get_contrastive_denoising_training_group
 from clean_dfine.arch.dfine_utils import distance2bbox, weighting_function
@@ -504,7 +504,7 @@ class DFINETransformer(nn.Module):
         feat_channels=[512, 1024, 2048],
         feat_strides=[8, 16, 32],
         num_levels=3,
-        num_points=4,
+        num_points: Union[list, int] = 4,
         nhead=8,
         num_layers=6,
         dim_feedforward=1024,

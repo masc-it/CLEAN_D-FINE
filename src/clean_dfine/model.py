@@ -1,19 +1,21 @@
-from PIL.Image import Image
 import torch
 from clean_dfine.arch.dfine import DFINE
 from clean_dfine.arch.postprocessor import DFINEPostProcessor
-from clean_dfine.evaluation.object_detection import BBox, DetModel
+from clean_dfine.arch.object_detection import BBox, DetModel
 
 
 class DFineModel(DetModel):
+    """High Level interface to run predictions with DFINE"""
+
     def __init__(
         self, model: DFINE, posprocessor: DFINEPostProcessor, img_size: int
     ) -> None:
-        self.model = model
+        self.model = model.eval()
         self.model.decoder.training = False  # :vomit fix her asap
         self.postprocessor = posprocessor
         self.img_size = img_size
 
+    @torch.inference_mode()
     def predict(self, img: torch.Tensor) -> list[BBox]:
         return []
 

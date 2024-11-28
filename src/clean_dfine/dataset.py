@@ -5,7 +5,7 @@ Copyright(c) 2023 lyuwenyu. All Rights Reserved.
 
 from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 import torch
 import torch.utils.data as data
 import torchvision
@@ -14,8 +14,9 @@ from torchvision.transforms import Compose
 from torchvision import transforms
 from datasets import Dataset, load_from_disk, concatenate_datasets
 from PIL import Image
+import logging
 
-_boxes_keys = ["format", "canvas_size"]
+from clean_dfine.arch.object_detection import BBox
 
 
 class DetDataset(data.Dataset):
@@ -49,14 +50,26 @@ class HFImageDataset(DetDataset):
         target_col: str,
         transforms,
         img_size: int,
+        target_format: Literal["train", "val"],
     ):
-        self.ds = concatenate_datasets([ds_data.select_columns([target_col]), ds_images.select_columns([img_col])], axis=1)
+        self.ds = concatenate_datasets(
+            [ds_data.select_columns([target_col]), ds_images.select_columns([img_col])],
+            axis=1,
+        )
         self.img_col = img_col
         self.target_col = target_col
         self.transforms = transforms
         self.img_size = img_size
+        self.target_format = target_format
+        self.get_item_fn = (
+            self._get_item_train if target_format == "train" else self._get_item_eval
+        )
+        logging.info(f"[DATASET] {self.target_format=}")
 
     def __getitem__(self, index):
+        return self.get_item_fn(index)
+
+    def _get_item_train(self, index: int) -> tuple[torch.Tensor, dict]:
         sample = self.ds[index]
         image = self._load_img_from_bytes(sample[self.img_col])
         target = sample[self.target_col]
@@ -79,9 +92,21 @@ class HFImageDataset(DetDataset):
         output = {"boxes": boxes, "labels": self._parse_labels(target)}
         return img, output
 
+    def _get_item_eval(self, index: int) -> tuple[torch.Tensor, dict[str, list[BBox]]]:
+        sample = self.ds[index]
+        image = self._load_img_from_bytes(sample[self.img_col])
+        target = sample[self.target_col]
+        boxes = self._resize_bounding_boxes(
+            target, image.width, image.height, self.img_size, self.img_size
+        )
+
+        img: torch.Tensor = self.transforms(image)
+
+        output = {"boxes": [BBox(**b) for b in boxes]}
+        return img, output
+
     @staticmethod
-    def from_path(ds_path: Path, split: str, img_size: int):
-        
+    def from_path(ds_path: Path, split: Literal["train", "val"], img_size: int):
         ds_data = load_from_disk((ds_path / "data" / split).as_posix())
         ds_images = load_from_disk((ds_path / "data_images" / split).as_posix())
         assert isinstance(ds_data, Dataset) and isinstance(ds_images, Dataset)
@@ -92,6 +117,7 @@ class HFImageDataset(DetDataset):
             "gibs",
             Compose([transforms.Resize((img_size, img_size)), transforms.ToTensor()]),
             img_size,
+            target_format=split,
         )
 
     def _load_img_from_bytes(self, img_bytes: bytes) -> Image.Image:
@@ -129,9 +155,7 @@ class HFImageDataset(DetDataset):
 
         resized_boxes = []
         for box in bounding_boxes:
-            resized_box = (
-                box  # .copy()  # Make a copy to avoid modifying the original box
-            )
+            resized_box = box
             resized_box["xmin"] = int(box["xmin"] * x_scale)
             resized_box["xmax"] = int(box["xmax"] * x_scale)
             resized_box["ymin"] = int(box["ymin"] * y_scale)
@@ -176,6 +200,11 @@ class DataLoader(data.DataLoader):
 
 
 def batch_image_collate_fn(items):
+    """only batch image"""
+    return torch.stack([x[0] for x in items]), [x[1] for x in items]
+
+
+def batch_image_collate_fnorig(items):
     """only batch image"""
     return torch.cat([x[0][None] for x in items], dim=0), [x[1] for x in items]
 

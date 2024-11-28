@@ -14,8 +14,11 @@ from clean_dfine.arch.dfine_decoder import DFINETransformer
 from clean_dfine.arch.hgnetv2 import HGNetv2
 from clean_dfine.arch.hybrid_encoder import HybridEncoder
 from clean_dfine.config import ExperimentConfig
-from clean_dfine.dataset import BatchImageCollateFunction, DataLoader, HFImageDataset
-from clean_dfine.model import DFineModel
+from clean_dfine.dataset import (
+    DataLoader,
+    HFImageDataset,
+    batch_image_collate_fn,
+)
 from clean_dfine.trainer import train
 
 
@@ -25,15 +28,46 @@ def main(
     cfg = ExperimentConfig(
         exp_name="dfine-test",
         model="dfine-det-s",
-        batch_size=64,
-        device="cuda",
+        batch_size=2,
+        device="cpu",
         out_dir="runs/exp",
         num_classes=1,
         lr0=8e-4,
         num_epochs=1,
-        img_size=512
+        img_size=420,
     )
 
+    model = _build_dfine(cfg)
+    print(sum(p.numel() for p in model.parameters()))
+
+    dataset_train = HFImageDataset.from_path(
+        Path("./data/it_it"), "train", cfg.img_size
+    )
+    dataloader_train = DataLoader(
+        dataset_train,
+        batch_size=cfg.batch_size,
+        shuffle=True,
+        num_workers=4,
+        persistent_workers=True,
+        collate_fn=batch_image_collate_fn,
+    )
+
+    dataset_val = HFImageDataset.from_path(Path("./data/it_it"), "val", cfg.img_size)
+    dataset_val.ds = dataset_val.ds.take(1024)  # tmp
+
+    dataloader_val = DataLoader(
+        dataset_val,
+        batch_size=cfg.batch_size,
+        shuffle=False,
+        num_workers=2,
+        persistent_workers=True,
+        collate_fn=batch_image_collate_fn,
+    )
+
+    train(cfg, model, dataloader_train, dataloader_val)
+
+
+def _build_dfine(cfg: ExperimentConfig):
     backbone = HGNetv2(
         name="B0",
         return_idx=[2, 3],
@@ -67,34 +101,11 @@ def main(
         num_classes=cfg.num_classes,
     )
 
-    model = (
+    return (
         DFINE(backbone=backbone, encoder=encoder, decoder=decoder)
         .to(cfg.device)
         .train()
     )
-
-    print(sum(p.numel() for p in model.parameters()))
-
-    dataset_train = HFImageDataset.from_path(Path("./data/it_it"), "train", cfg.img_size)
-    dataloader_train = DataLoader(
-        dataset_train,
-        batch_size=cfg.batch_size,
-        shuffle=True,
-        num_workers=4,
-        persistent_workers=True,
-        collate_fn=BatchImageCollateFunction(),
-    )
-    dataloader_val = DataLoader(
-        dataset_train,
-        batch_size=cfg.batch_size,
-        shuffle=False,
-        num_workers=2,
-        persistent_workers=True,
-        collate_fn=BatchImageCollateFunction(),
-    )
-
-    
-    train(cfg, model, dataloader_train, dataloader_val)
 
 
 if __name__ == "__main__":

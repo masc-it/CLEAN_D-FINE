@@ -31,7 +31,22 @@ dev-dependencies = [
 [tool.uv.sources]
 torch = [
   { index = "pytorch-cu121", marker = "platform_system != 'Darwin'"},
+  { index = "pytorch-cpu", marker = "platform_system == 'Darwin'"},
 ]
 torchvision = [
   { index = "pytorch-cu121", marker = "platform_system != 'Darwin'"},
+  { index = "pytorch-cpu", marker = "platform_system == 'Darwin'"},
 ]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+
+[[tool.uv.index]]
+name = "pytorch-cu121"
+url = "https://download.pytorch.org/whl/cu121"
+explicit = true
+
+

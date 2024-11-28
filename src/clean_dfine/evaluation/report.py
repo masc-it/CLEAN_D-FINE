@@ -1,6 +1,6 @@
 from pydantic import BaseModel, computed_field
 
-from clean_dfine.evaluation.object_detection import BBox
+from clean_dfine.arch.object_detection import BBox
 
 
 class ODEvalScoreReport(BaseModel):
@@ -129,4 +129,3 @@ class ODEvalClass(BaseModel):
 
 class ODEvalReport(BaseModel):
     metrics: list[ODEvalClass]
-
