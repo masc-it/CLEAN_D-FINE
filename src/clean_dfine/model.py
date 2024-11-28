@@ -8,12 +8,13 @@ class DFineModel(DetModel):
     """High Level interface to run predictions with DFINE"""
 
     def __init__(
-        self, model: DFINE, posprocessor: DFINEPostProcessor, img_size: int
+        self, model: DFINE, posprocessor: DFINEPostProcessor, img_size: int, device: str
     ) -> None:
         self.model = model.eval()
         self.model.decoder.training = False  # :vomit fix her asap
         self.postprocessor = posprocessor
         self.img_size = img_size
+        self.device = device
 
     @torch.inference_mode()
     def predict(self, img: torch.Tensor) -> list[BBox]:
@@ -21,6 +22,7 @@ class DFineModel(DetModel):
 
     @torch.inference_mode()
     def predict_batch(self, imgs: torch.Tensor) -> list[list[BBox]]:
+        imgs = imgs.to(self.device, non_blocking=True)
         outputs = self.model(imgs)
         outputs = self.postprocessor(
             outputs,

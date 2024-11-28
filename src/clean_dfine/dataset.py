@@ -18,6 +18,7 @@ import logging
 
 from clean_dfine.arch.object_detection import BBox
 
+_boxes_keys = ['format', 'canvas_size']
 
 class DetDataset(data.Dataset):
     def __init__(self):
@@ -199,12 +200,12 @@ class DataLoader(data.DataLoader):
         self._shuffle = shuffle
 
 
-def batch_image_collate_fn(items):
+def batch_image_collate_fn_(items):
     """only batch image"""
     return torch.stack([x[0] for x in items]), [x[1] for x in items]
 
 
-def batch_image_collate_fnorig(items):
+def batch_image_collate_fn(items):
     """only batch image"""
     return torch.cat([x[0][None] for x in items], dim=0), [x[1] for x in items]
 

@@ -107,13 +107,7 @@ def train(
     )
 
     postprocessor = DFINEPostProcessor(num_classes=cfg.num_classes).to(cfg.device)
-    # imgs, _ = next(iter(dataloader_train))
-    m = DFineModel(model, postprocessor, cfg.img_size)
-
-    # print(m.predict_batch(imgs.to(cfg.device))[0])
-
-    print(start_eval(m, dataloader_val))
-    return
+    
     scheduler = CosineAnnealingWarmupScheduler(
         optimizer,
         initial_lr=cfg.lr0,
@@ -148,6 +142,11 @@ def train(
             cfg.device,
             epoch,
         )
+        m = DFineModel(model, postprocessor, cfg.img_size, cfg.device)
+        print(start_eval(m, dataloader_val))
+        model = model.train()
+        model.decoder.training = True
+        torch.save(m.model.state_dict(), "data/dfine.pt")
 
 
 def train_one_epoch(

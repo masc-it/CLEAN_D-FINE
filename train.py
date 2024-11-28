@@ -9,6 +9,8 @@ Copyright (c) 2023 lyuwenyu. All Rights Reserved.
 import argparse
 from pathlib import Path
 
+import torch
+
 from clean_dfine.arch.dfine import DFINE
 from clean_dfine.arch.dfine_decoder import DFINETransformer
 from clean_dfine.arch.hgnetv2 import HGNetv2
@@ -28,21 +30,25 @@ def main(
     cfg = ExperimentConfig(
         exp_name="dfine-test",
         model="dfine-det-s",
-        batch_size=2,
-        device="cpu",
+        batch_size=32,
+        device="cuda",
         out_dir="runs/exp",
         num_classes=1,
         lr0=8e-4,
-        num_epochs=1,
-        img_size=420,
+        num_epochs=2,
+        img_size=512,
     )
 
     model = _build_dfine(cfg)
+    # TODO save postprocessor as well
+    #model.load_state_dict(torch.load("data/dfine.pt", weights_only=True, map_location="cpu"))
+
     print(sum(p.numel() for p in model.parameters()))
 
     dataset_train = HFImageDataset.from_path(
         Path("./data/it_it"), "train", cfg.img_size
     )
+    #dataset_train.ds = dataset_train.ds.shuffle(seed=42).take(2000)
     dataloader_train = DataLoader(
         dataset_train,
         batch_size=cfg.batch_size,
@@ -53,7 +59,7 @@ def main(
     )
 
     dataset_val = HFImageDataset.from_path(Path("./data/it_it"), "val", cfg.img_size)
-    dataset_val.ds = dataset_val.ds.take(1024)  # tmp
+    dataset_val.ds = dataset_val.ds.take(512)  # tmp
 
     dataloader_val = DataLoader(
         dataset_val,
